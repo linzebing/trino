@@ -56,7 +56,7 @@ public class PartitionedOutputBuffer
             OutputBufferStateMachine stateMachine,
             OutputBuffers outputBuffers,
             DataSize maxBufferSize,
-            Supplier<LocalMemoryContext> systemMemoryContextSupplier,
+            Supplier<LocalMemoryContext> memoryContextSupplier,
             Executor notificationExecutor)
     {
         this.stateMachine = requireNonNull(stateMachine, "stateMachine is null");
@@ -67,7 +67,7 @@ public class PartitionedOutputBuffer
         this.outputBuffers = outputBuffers;
         this.memoryManager = new OutputBufferMemoryManager(
                 requireNonNull(maxBufferSize, "maxBufferSize is null").toBytes(),
-                requireNonNull(systemMemoryContextSupplier, "systemMemoryContextSupplier is null"),
+                requireNonNull(memoryContextSupplier, "memoryContextSupplier is null"),
                 requireNonNull(notificationExecutor, "notificationExecutor is null"));
         this.onPagesReleased = PagesReleasedListener.forOutputBufferMemoryManager(memoryManager);
 
