@@ -22,6 +22,7 @@ import io.trino.memory.context.LocalMemoryContext;
 import io.trino.spi.exchange.ExchangeSink;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Supplier;
 
@@ -166,40 +167,63 @@ public class SpoolingExchangeOutputBuffer
     @Override
     public void setNoMorePages()
     {
-        stateMachine.noMorePages();
-        destroy();
+        if (stateMachine.noMorePages()) {
+            exchangeSink.finish().whenComplete((value, failure) -> {
+                try {
+                    if (failure != null) {
+                        stateMachine.fail(failure);
+                    }
+                    else {
+                        stateMachine.finish();
+                    }
+                }
+                finally {
+                    updateMemoryUsage(exchangeSink.getMemoryUsage());
+                }
+            });
+        }
     }
 
     @Override
     public void destroy()
     {
-        if (stateMachine.finish()) {
-            try {
-                exchangeSink.finish();
-            }
-            finally {
-                updateMemoryUsage(exchangeSink.getMemoryUsage());
-            }
+        if (stateMachine.getState().canAddPages()) {
+            // This situation is possible if the task has been cancelled
+            // Task cancellation is not supported (and not expected to be requested by the scheduler)
+            // when external exchange is active as the task output is expected to be deterministic
+            // As a safety precaution abort the sink to mark the output as invalid
+            abort();
         }
     }
 
     @Override
     public void abort()
     {
-        if (stateMachine.abort()) {
+        exchangeSink.abort().whenComplete((value, failure) -> {
             try {
-                exchangeSink.abort();
+                if (failure != null) {
+                    stateMachine.fail(failure);
+                }
+                else {
+                    stateMachine.abort();
+                }
             }
             finally {
-                updateMemoryUsage(0);
+                updateMemoryUsage(exchangeSink.getMemoryUsage());
             }
-        }
+        });
     }
 
     @Override
     public long getPeakMemoryUsage()
     {
         return peakMemoryUsage.get();
+    }
+
+    @Override
+    public Optional<Throwable> getFailureCause()
+    {
+        return stateMachine.getFailureCause();
     }
 
     private void updateMemoryUsage(long bytes)

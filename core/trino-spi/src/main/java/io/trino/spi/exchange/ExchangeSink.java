@@ -46,11 +46,15 @@ public interface ExchangeSink
 
     /**
      * Notifies the exchange sink that no more data will be appended
+     *
+     * @return future that will be resolved when the finish operation either succeeds or fails
      */
-    void finish();
+    CompletableFuture<?> finish();
 
     /**
      * Notifies the exchange that the write operation has been aborted
+     *
+     * @return future that will be resolved when the abort operation either succeeds or fails
      */
-    void abort();
+    CompletableFuture<?> abort();
 }
