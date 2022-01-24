@@ -11,18 +11,21 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.hive;
+package io.trino.plugin.exchange.local;
 
 import com.google.common.collect.ImmutableMap;
-import io.trino.testing.QueryRunner;
+import io.trino.plugin.exchange.FileSystemExchangeManagerFactory;
+import io.trino.spi.exchange.ExchangeManager;
+import io.trino.testing.AbstractTestExchangeManager;
 
-public class TestHivePipelinedExecutionConnectorTest
-        extends BaseHiveConnectorTest
+public class TestLocalFileSystemExchangeManager
+        extends AbstractTestExchangeManager
 {
     @Override
-    protected QueryRunner createQueryRunner()
-            throws Exception
+    protected ExchangeManager createExchangeManager()
     {
-        return BaseHiveConnectorTest.createHiveQueryRunner(ImmutableMap.of(), ImmutableMap.of());
+        return new FileSystemExchangeManagerFactory().create(ImmutableMap.of(
+                "exchange.base-directory", System.getProperty("java.io.tmpdir") + "/trino-local-file-system-exchange-manager",
+                "exchange.encryption-enabled", "true"));
     }
 }

@@ -28,11 +28,17 @@ public class TestHiveFileTaskFailureRecoveryTest
 {
     protected TestHiveFileTaskFailureRecoveryTest()
     {
-        super(RetryPolicy.TASK);
+        super(RetryPolicy.TASK, ImmutableMap.of(
+                "exchange.base-directory", System.getProperty("java.io.tmpdir") + "/trino-local-file-system-exchange-manager",
+                "exchange.encryption-enabled", "true"));
     }
 
     @Override
-    protected QueryRunner createQueryRunner(List<TpchTable<?>> requiredTpchTables, Map<String, String> configProperties, Map<String, String> coordinatorProperties)
+    protected QueryRunner createQueryRunner(
+            List<TpchTable<?>> requiredTpchTables,
+            Map<String, String> configProperties,
+            Map<String, String> coordinatorProperties,
+            Map<String, String> exchangeManagerProperties)
             throws Exception
     {
         return HiveQueryRunner.builder()
@@ -43,6 +49,7 @@ public class TestHiveFileTaskFailureRecoveryTest
                         // currently not supported for fault tolerant execution mode
                         .put("enable-dynamic-filtering", "false")
                         .build())
+                .setExchangeManagerProperties(exchangeManagerProperties)
                 .build();
     }
 

@@ -1,3 +1,4 @@
+package io.trino.plugin.exchange;
 /*
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -11,18 +12,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package io.trino.plugin.hive;
 
-import com.google.common.collect.ImmutableMap;
-import io.trino.testing.QueryRunner;
+import io.airlift.slice.Slice;
 
-public class TestHivePipelinedExecutionConnectorTest
-        extends BaseHiveConnectorTest
+import java.util.concurrent.CompletableFuture;
+
+public interface ExchangeStorageWriter
 {
-    @Override
-    protected QueryRunner createQueryRunner()
-            throws Exception
-    {
-        return BaseHiveConnectorTest.createHiveQueryRunner(ImmutableMap.of(), ImmutableMap.of());
-    }
+    CompletableFuture<?> write(Slice slice);
+
+    CompletableFuture<?> abort();
+
+    CompletableFuture<?> finish();
 }
