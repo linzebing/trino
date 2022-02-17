@@ -19,9 +19,11 @@ import com.google.common.io.Closer;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
-import io.airlift.slice.InputStreamSliceInput;
+import io.airlift.slice.SizeOf;
 import io.airlift.slice.Slice;
-import io.airlift.slice.SliceInput;
+import io.airlift.slice.Slices;
+import io.trino.plugin.exchange.ExchangeSourceFile;
+import io.trino.plugin.exchange.ExchangeStorageReader;
 import io.trino.plugin.exchange.ExchangeStorageWriter;
 import io.trino.plugin.exchange.FileStatus;
 import io.trino.plugin.exchange.FileSystemExchangeStorage;
@@ -33,7 +35,6 @@ import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.core.async.AsyncRequestBody;
 import software.amazon.awssdk.core.client.config.ClientOverrideConfiguration;
 import software.amazon.awssdk.core.retry.RetryPolicy;
-import software.amazon.awssdk.core.sync.ResponseTransformer;
 import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
 import software.amazon.awssdk.services.s3.S3AsyncClientBuilder;
@@ -52,6 +53,7 @@ import software.amazon.awssdk.services.s3.model.Delete;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
 import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
+import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
@@ -71,7 +73,9 @@ import javax.inject.Inject;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URISyntaxException;
+import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 
@@ -82,13 +86,18 @@ import static com.google.common.base.Verify.verify;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.util.concurrent.Futures.immediateFailedFuture;
 import static com.google.common.util.concurrent.Futures.immediateVoidFuture;
+import static com.google.common.util.concurrent.Futures.nonCancellationPropagating;
 import static com.google.common.util.concurrent.MoreExecutors.directExecutor;
 import static io.airlift.concurrent.MoreFutures.asVoid;
 import static io.airlift.concurrent.MoreFutures.getFutureValue;
 import static io.airlift.concurrent.MoreFutures.toListenableFuture;
 import static io.trino.plugin.exchange.FileSystemExchangeManager.PATH_SEPARATOR;
 import static io.trino.plugin.exchange.s3.S3RequestUtil.configureEncryption;
+import static java.lang.Math.min;
 import static java.lang.Math.toIntExact;
+import static java.lang.String.format;
+import static java.lang.System.arraycopy;
+import static java.nio.ByteOrder.LITTLE_ENDIAN;
 import static java.util.Objects.requireNonNull;
 import static java.util.Objects.requireNonNullElseGet;
 import static software.amazon.awssdk.core.client.config.SdkAdvancedClientOption.USER_AGENT_PREFIX;
@@ -135,20 +144,10 @@ public class S3FileSystemExchangeStorage
     }
 
     @Override
-    public SliceInput getSliceInput(URI file, Optional<SecretKey> secretKey)
+    public ExchangeStorageReader createExchangeStorageReader(Iterator<ExchangeSourceFile> exchangeSourceFiles, int maxPageStorageSize)
             throws IOException
     {
-        GetObjectRequest.Builder getObjectRequestBuilder = GetObjectRequest.builder()
-                .bucket(getBucketName(file))
-                .key(keyFromUri(file));
-        configureEncryption(secretKey, getObjectRequestBuilder);
-
-        try {
-            return new InputStreamSliceInput(s3Client.getObject(getObjectRequestBuilder.build(), ResponseTransformer.toInputStream()));
-        }
-        catch (RuntimeException e) {
-            throw new IOException(e);
-        }
+        return new S3ExchangeStorageReader(s3AsyncClient, exchangeSourceFiles, maxPageStorageSize, multiUploadPartSize);
     }
 
     @Override
@@ -392,6 +391,156 @@ public class S3FileSystemExchangeStorage
         endpoint.ifPresent(s3Endpoint -> clientBuilder.endpointOverride(URI.create(s3Endpoint)));
 
         return clientBuilder.build();
+    }
+
+    @NotThreadSafe
+    private static class S3ExchangeStorageReader
+            implements ExchangeStorageReader
+    {
+        private static final int INSTANCE_SIZE = ClassLayout.parseClass(S3ExchangeStorageReader.class).instanceSize();
+
+        private final S3AsyncClient s3AsyncClient;
+        private final Iterator<ExchangeSourceFile> exchangeSourceFiles;
+        private final int maxPageStorageSize;
+        private final int partSize;
+
+        private ExchangeSourceFile currentFile;
+        private ListenableFuture<Void> inProgressReadFuture = immediateVoidFuture();
+        private long fileOffset;
+        private byte[] buffer;
+        private int bufferPosition;
+        private int bufferFill;
+
+        public S3ExchangeStorageReader(
+                S3AsyncClient s3AsyncClient,
+                Iterator<ExchangeSourceFile> exchangeSourceFiles,
+                int maxPageStorageSize,
+                int partSize)
+        {
+            this.s3AsyncClient = requireNonNull(s3AsyncClient, "s3AsyncClient is null");
+            this.exchangeSourceFiles = requireNonNull(exchangeSourceFiles, "exchangeSourceFiles is null");
+            this.maxPageStorageSize = maxPageStorageSize;
+            this.partSize = partSize;
+
+            checkArgument(exchangeSourceFiles.hasNext(), "no exchangeSourceFile to read from");
+            this.currentFile = exchangeSourceFiles.next();
+
+            fillBufferIfNeeded();
+        }
+
+        @Override
+        public Slice read()
+                throws IOException
+        {
+            if (currentFile == null) {
+                return null;
+            }
+
+            try {
+                getFutureValue(inProgressReadFuture);
+            }
+            catch (RuntimeException e) {
+                Throwable cause = e.getCause() == null ? e : e.getCause();
+                throw new IOException(cause);
+            }
+
+            verify(bufferFill - bufferPosition >= Integer.BYTES);
+            int size = ByteBuffer.wrap(buffer, bufferPosition, Integer.BYTES).order(LITTLE_ENDIAN).getInt();
+            bufferPosition += Integer.BYTES;
+
+            verify(bufferFill - bufferPosition >= size);
+            Slice slice = Slices.wrappedBuffer(buffer, bufferPosition, size);
+            bufferPosition += size;
+
+            fillBufferIfNeeded();
+
+            return slice;
+        }
+
+        @Override
+        public ListenableFuture<Void> isBlocked()
+        {
+            return nonCancellationPropagating(inProgressReadFuture);
+        }
+
+        @Override
+        public long getRetainedSize()
+        {
+            return INSTANCE_SIZE + SizeOf.sizeOf(buffer);
+        }
+
+        @Override
+        public void close()
+        {
+            inProgressReadFuture.cancel(true);
+            currentFile = null;
+        }
+
+        private void fillBufferIfNeeded()
+        {
+            if (!needsToFillBuffer()) {
+                return;
+            }
+
+            long fileSize = currentFile.getFileSize();
+            if (fileOffset == fileSize) {
+                verify(bufferPosition == bufferFill);
+                if (exchangeSourceFiles.hasNext()) {
+                    currentFile = exchangeSourceFiles.next();
+                    fileSize = currentFile.getFileSize();
+                }
+                else {
+                    currentFile = null;
+                    return;
+                }
+                fileOffset = 0;
+            }
+
+            String key = keyFromUri(currentFile.getFileUri());
+            String bucketName = getBucketName(currentFile.getFileUri());
+            Optional<SecretKey> secretKey = currentFile.getSecretKey();
+
+            int rest = bufferFill - bufferPosition;
+            verify(0 <= rest && rest < maxPageStorageSize);
+
+            byte[] oldBuffer = buffer;
+            this.buffer = new byte[maxPageStorageSize + partSize];
+            if (oldBuffer != null) {
+                arraycopy(oldBuffer, bufferPosition, buffer, 0, rest);
+                bufferPosition = 0;
+                bufferFill = rest;
+            }
+
+            // Make sure byte ranges align with part sizes
+            int readableParts = toIntExact(buffer.length - bufferFill) / partSize;
+            List<ListenableFuture<GetObjectResponse>> readFutures = new ArrayList<>(readableParts);
+            for (int i = 0; i < readableParts && fileOffset < fileSize; ++i) {
+                final int length = (int) min(partSize, fileSize - fileOffset);
+
+                GetObjectRequest.Builder getObjectRequestBuilder = GetObjectRequest.builder()
+                        .key(key)
+                        .bucket(bucketName)
+                        .range(format("bytes=%d-%d", fileOffset, fileOffset + length - 1));
+                configureEncryption(secretKey, getObjectRequestBuilder);
+
+                readFutures.add(toListenableFuture(s3AsyncClient.getObject(getObjectRequestBuilder.build(), BufferWriteAsyncResponseTransformer.toBufferWrite(buffer, bufferFill))));
+                fileOffset += length;
+                bufferFill += length;
+            }
+            inProgressReadFuture = asVoid(Futures.allAsList(readFutures));
+        }
+
+        private boolean needsToFillBuffer()
+        {
+            if (!inProgressReadFuture.isDone() || currentFile == null) {
+                return false;
+            }
+            if (bufferFill - bufferPosition <= Integer.BYTES) {
+                return true;
+            }
+            int size = ByteBuffer.wrap(buffer, bufferPosition, Integer.BYTES).order(LITTLE_ENDIAN).getInt();
+            return (bufferFill - bufferPosition - Integer.BYTES < size);
+        }
     }
 
     @NotThreadSafe

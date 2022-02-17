@@ -14,15 +14,23 @@
 package io.trino.plugin.exchange;
 
 import io.airlift.configuration.Config;
+import io.airlift.configuration.ConfigDescription;
+import io.airlift.units.DataSize;
+import io.airlift.units.MaxDataSize;
+import io.airlift.units.MinDataSize;
 
 import javax.validation.constraints.Min;
 import javax.validation.constraints.NotNull;
+
+import static io.airlift.units.DataSize.Unit.MEGABYTE;
 
 public class FileSystemExchangeConfig
 {
     private String baseDirectory;
     private boolean exchangeEncryptionEnabled;
     private int exchangeSinkBufferPoolMinSize;
+    private DataSize maxPageStorageSize = DataSize.of(16, MEGABYTE);
+    private int exchangeSourceConcurrentReaders = 2;
 
     @NotNull
     public String getBaseDirectory()
@@ -49,6 +57,22 @@ public class FileSystemExchangeConfig
         return this;
     }
 
+    @NotNull
+    @MinDataSize("5MB")
+    @MaxDataSize("256MB")
+    public DataSize getMaxPageStorageSize()
+    {
+        return maxPageStorageSize;
+    }
+
+    @Config("exchange.max-page-storage-size")
+    @ConfigDescription("Max storage size of a page written to exchange sinks, including the page itself and its size represented as an int")
+    public FileSystemExchangeConfig setMaxPageStorageSize(DataSize exchangeMaxPageStorageSize)
+    {
+        this.maxPageStorageSize = exchangeMaxPageStorageSize;
+        return this;
+    }
+
     @Min(0)
     public int getExchangeSinkBufferPoolMinSize()
     {
@@ -59,6 +83,19 @@ public class FileSystemExchangeConfig
     public FileSystemExchangeConfig setExchangeSinkBufferPoolMinSize(int exchangeSinkBufferPoolMinSize)
     {
         this.exchangeSinkBufferPoolMinSize = exchangeSinkBufferPoolMinSize;
+        return this;
+    }
+
+    @Min(1)
+    public int getExchangeSourceConcurrentReaders()
+    {
+        return exchangeSourceConcurrentReaders;
+    }
+
+    @Config("exchange.source-concurrent-readers")
+    public FileSystemExchangeConfig setExchangeSourceConcurrentReaders(int exchangeSourceConcurrentReaders)
+    {
+        this.exchangeSourceConcurrentReaders = exchangeSourceConcurrentReaders;
         return this;
     }
 }

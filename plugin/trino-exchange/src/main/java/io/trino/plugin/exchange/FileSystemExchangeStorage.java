@@ -14,12 +14,12 @@ package io.trino.plugin.exchange;
  */
 
 import com.google.common.util.concurrent.ListenableFuture;
-import io.airlift.slice.SliceInput;
 
 import javax.crypto.SecretKey;
 
 import java.io.IOException;
 import java.net.URI;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Optional;
 
@@ -28,7 +28,7 @@ public interface FileSystemExchangeStorage
 {
     void createDirectories(URI dir) throws IOException;
 
-    SliceInput getSliceInput(URI file, Optional<SecretKey> secretKey) throws IOException;
+    ExchangeStorageReader createExchangeStorageReader(Iterator<ExchangeSourceFile> exchangeSourceFiles, int maxPageStorageSize) throws IOException;
 
     ExchangeStorageWriter createExchangeStorageWriter(URI file, Optional<SecretKey> secretKey) throws IOException;
 

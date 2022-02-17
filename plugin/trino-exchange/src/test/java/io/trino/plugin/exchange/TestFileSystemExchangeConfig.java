@@ -14,6 +14,7 @@
 package io.trino.plugin.exchange;
 
 import com.google.common.collect.ImmutableMap;
+import io.airlift.units.DataSize;
 import org.testng.annotations.Test;
 
 import java.util.Map;
@@ -21,6 +22,7 @@ import java.util.Map;
 import static io.airlift.configuration.testing.ConfigAssertions.assertFullMapping;
 import static io.airlift.configuration.testing.ConfigAssertions.assertRecordedDefaults;
 import static io.airlift.configuration.testing.ConfigAssertions.recordDefaults;
+import static io.airlift.units.DataSize.Unit.MEGABYTE;
 
 public class TestFileSystemExchangeConfig
 {
@@ -30,7 +32,9 @@ public class TestFileSystemExchangeConfig
         assertRecordedDefaults(recordDefaults(FileSystemExchangeConfig.class)
                 .setBaseDirectory(null)
                 .setExchangeEncryptionEnabled(false)
-                .setExchangeSinkBufferPoolMinSize(0));
+                .setMaxPageStorageSize(DataSize.of(16, MEGABYTE))
+                .setExchangeSinkBufferPoolMinSize(0)
+                .setExchangeSourceConcurrentReaders(2));
     }
 
     @Test
@@ -39,13 +43,17 @@ public class TestFileSystemExchangeConfig
         Map<String, String> properties = new ImmutableMap.Builder<String, String>()
                 .put("exchange.base-directory", "s3n://exchange-spooling-test/")
                 .put("exchange.encryption-enabled", "true")
+                .put("exchange.max-page-storage-size", "32MB")
                 .put("exchange.sink-buffer-pool-min-size", "10")
+                .put("exchange.source-concurrent-readers", "4")
                 .buildOrThrow();
 
         FileSystemExchangeConfig expected = new FileSystemExchangeConfig()
                 .setBaseDirectory("s3n://exchange-spooling-test/")
                 .setExchangeEncryptionEnabled(true)
-                .setExchangeSinkBufferPoolMinSize(10);
+                .setMaxPageStorageSize(DataSize.of(32, MEGABYTE))
+                .setExchangeSinkBufferPoolMinSize(10)
+                .setExchangeSourceConcurrentReaders(4);
 
         assertFullMapping(properties, expected);
     }

@@ -20,6 +20,7 @@ import io.airlift.slice.SizeOf;
 import io.airlift.slice.Slice;
 import io.airlift.slice.SliceOutput;
 import io.airlift.slice.Slices;
+import io.trino.spi.TrinoException;
 import io.trino.spi.exchange.ExchangeSink;
 import org.openjdk.jol.info.ClassLayout;
 
@@ -47,8 +48,10 @@ import static io.airlift.concurrent.MoreFutures.addSuccessCallback;
 import static io.airlift.concurrent.MoreFutures.asVoid;
 import static io.airlift.concurrent.MoreFutures.toCompletableFuture;
 import static io.airlift.slice.SizeOf.estimatedSizeOf;
+import static io.trino.spi.StandardErrorCode.NOT_SUPPORTED;
 import static java.lang.Math.max;
 import static java.lang.Math.min;
+import static java.lang.String.format;
 import static java.util.Objects.requireNonNull;
 import static java.util.concurrent.CompletableFuture.completedFuture;
 import static java.util.concurrent.CompletableFuture.failedFuture;
@@ -65,6 +68,7 @@ public class FileSystemExchangeSink
     private final FileSystemExchangeStorage exchangeStorage;
     private final URI outputDirectory;
     private final int outputPartitionCount;
+    private final int maxPageStorageSize;
     private final Optional<SecretKey> secretKey;
     private final BufferPool bufferPool;
 
@@ -77,11 +81,13 @@ public class FileSystemExchangeSink
             URI outputDirectory,
             int outputPartitionCount,
             Optional<SecretKey> secretKey,
+            int maxPageStorageSize,
             int exchangeSinkBufferPoolMinSize)
     {
         this.exchangeStorage = requireNonNull(exchangeStorage, "exchangeStorage is null");
         this.outputDirectory = requireNonNull(outputDirectory, "outputDirectory is null");
         this.outputPartitionCount = outputPartitionCount;
+        this.maxPageStorageSize = maxPageStorageSize;
         this.secretKey = requireNonNull(secretKey, "secretKey is null");
         // double buffering to overlap computation and I/O
         this.bufferPool = new BufferPool(max(outputPartitionCount * 2, exchangeSinkBufferPoolMinSize), exchangeStorage.getWriteBufferSize());
@@ -100,6 +106,11 @@ public class FileSystemExchangeSink
         throwIfFailed();
 
         checkArgument(partitionId < outputPartitionCount, "partition id is expected to be less than %s: %s", outputPartitionCount, partitionId);
+
+        int requiredPageStorageSize = Integer.BYTES + data.length();
+        if (requiredPageStorageSize > maxPageStorageSize) {
+            throw new TrinoException(NOT_SUPPORTED, format("Page required storage size (%s) larger than max allowed size (%s)", requiredPageStorageSize, maxPageStorageSize));
+        }
 
         // Ensure no new writers can be created after `closed` is set to true
         BufferedStorageWriter writer;
