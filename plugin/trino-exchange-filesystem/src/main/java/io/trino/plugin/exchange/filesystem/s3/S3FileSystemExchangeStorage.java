@@ -14,7 +14,6 @@
 package io.trino.plugin.exchange.filesystem.s3;
 
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.Lists;
 import com.google.common.io.Closer;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
@@ -52,16 +51,14 @@ import software.amazon.awssdk.services.s3.model.CompletedMultipartUpload;
 import software.amazon.awssdk.services.s3.model.CompletedPart;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadRequest;
 import software.amazon.awssdk.services.s3.model.CreateMultipartUploadResponse;
-import software.amazon.awssdk.services.s3.model.Delete;
-import software.amazon.awssdk.services.s3.model.DeleteObjectsRequest;
-import software.amazon.awssdk.services.s3.model.DeleteObjectsResponse;
+import software.amazon.awssdk.services.s3.model.DeleteObjectRequest;
+import software.amazon.awssdk.services.s3.model.DeleteObjectResponse;
 import software.amazon.awssdk.services.s3.model.GetObjectRequest;
 import software.amazon.awssdk.services.s3.model.GetObjectResponse;
 import software.amazon.awssdk.services.s3.model.HeadObjectRequest;
 import software.amazon.awssdk.services.s3.model.HeadObjectResponse;
 import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
 import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
-import software.amazon.awssdk.services.s3.model.ObjectIdentifier;
 import software.amazon.awssdk.services.s3.model.PutObjectRequest;
 import software.amazon.awssdk.services.s3.model.S3Object;
 import software.amazon.awssdk.services.s3.model.StorageClass;
@@ -196,10 +193,7 @@ public class S3FileSystemExchangeStorage
         return stats.getDeleteRecursively().record(transformFuture(Futures.transformAsync(
                 toListenableFuture((listObjectsRecursively(uri).subscribe(listObjectsV2Response ->
                         listObjectsV2Response.contents().stream().map(S3Object::key).forEach(keys::add)))),
-                ignored -> {
-                    keys.add(keyFromUri(uri) + DIRECTORY_SUFFIX);
-                    return deleteObjects(getBucketName(uri), keys.build());
-                },
+                ignored -> deleteObjects(getBucketName(uri), keys.build()),
                 directExecutor())));
     }
 
@@ -317,16 +311,15 @@ public class S3FileSystemExchangeStorage
         return s3AsyncClient.listObjectsV2Paginator(request);
     }
 
-    private ListenableFuture<List<DeleteObjectsResponse>> deleteObjects(String bucketName, List<String> keys)
+    private ListenableFuture<List<DeleteObjectResponse>> deleteObjects(String bucketName, List<String> keys)
     {
-        List<List<String>> subList = Lists.partition(keys, 1000); //  deleteObjects has a limit of 1000
         stats.getDeleteObjectsEntriesCount().add(keys.size());
-        return stats.getDeleteObjects().record(Futures.allAsList(subList.stream().map(list -> {
-            DeleteObjectsRequest request = DeleteObjectsRequest.builder()
+        return stats.getDeleteObjects().record(Futures.allAsList(keys.stream().map(key -> {
+            DeleteObjectRequest request = DeleteObjectRequest.builder()
                     .bucket(bucketName)
-                    .delete(Delete.builder().objects(list.stream().map(key -> ObjectIdentifier.builder().key(key).build()).collect(toImmutableList())).build())
+                    .key(key)
                     .build();
-            return toListenableFuture(s3AsyncClient.deleteObjects(request));
+            return toListenableFuture(s3AsyncClient.deleteObject(request));
         }).collect(toImmutableList())));
     }
 
@@ -577,12 +570,11 @@ public class S3FileSystemExchangeStorage
                 Optional<SecretKey> secretKey = currentFile.getSecretKey();
                 for (int i = 0; i < readableParts && fileOffset < fileSize; ++i) {
                     int length = (int) min(partSize, fileSize - fileOffset);
-                    int partNumber = (int) (fileOffset / partSize + 1);
 
                     GetObjectRequest.Builder getObjectRequestBuilder = GetObjectRequest.builder()
                             .key(key)
                             .bucket(bucketName)
-                            .partNumber(partNumber);
+                            .range("bytes=" + fileOffset + "-" + (fileOffset + length - 1));
                     configureEncryption(secretKey, getObjectRequestBuilder);
 
                     ListenableFuture<GetObjectResponse> getObjectFuture = toListenableFuture(s3AsyncClient.getObject(getObjectRequestBuilder.build(),
