@@ -24,6 +24,8 @@
         <!-- Launcher properties -->
         <main-class>io.trino.server.TrinoServer</main-class>
         <process-name>${project.artifactId}</process-name>
+
+        <dep.buffer-exchange.version>1-SNAPSHOT</dep.buffer-exchange.version>
     </properties>
 
     <build>
