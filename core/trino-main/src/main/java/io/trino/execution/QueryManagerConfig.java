@@ -131,6 +131,8 @@ public class QueryManagerConfig
     private int faultTolerantExecutionMaxPartitionCount = 50;
     private int faultTolerantExecutionMinPartitionCount = 4;
     private int faultTolerantExecutionMinPartitionCountForWrite = 50;
+    private boolean faultTolerantExecutionRuntimeAdaptivePartitioningEnabled;
+    private DataSize faultTolerantExecutionRuntimeAdaptivePartitioningMaxTaskSize = DataSize.of(24, GIGABYTE);
     private boolean faultTolerantExecutionForcePreferredWritePartitioningEnabled = true;
     private double faultTolerantExecutionMinSourceStageProgress = 0.2;
 
@@ -965,6 +967,31 @@ public class QueryManagerConfig
         return this;
     }
 
+    public boolean isFaultTolerantExecutionRuntimeAdaptivePartitioningEnabled()
+    {
+        return faultTolerantExecutionRuntimeAdaptivePartitioningEnabled;
+    }
+
+    @Config("fault-tolerant-execution-runtime-adaptive-partitioning-enabled")
+    public QueryManagerConfig setFaultTolerantExecutionRuntimeAdaptivePartitioningEnabled(boolean faultTolerantExecutionRuntimeAdaptivePartitioningEnabled)
+    {
+        this.faultTolerantExecutionRuntimeAdaptivePartitioningEnabled = faultTolerantExecutionRuntimeAdaptivePartitioningEnabled;
+        return this;
+    }
+
+    public DataSize getFaultTolerantExecutionRuntimeAdaptivePartitioningMaxTaskSize()
+    {
+        return faultTolerantExecutionRuntimeAdaptivePartitioningMaxTaskSize;
+    }
+
+    @Config("fault-tolerant-execution-runtime-adaptive-partitioning-max-task-size")
+    @ConfigDescription("Max average task input size of any stage at runtime")
+    public QueryManagerConfig setFaultTolerantExecutionRuntimeAdaptivePartitioningMaxTaskSize(DataSize faultTolerantExecutionRuntimeAdaptivePartitioningMaxTaskSize)
+    {
+        this.faultTolerantExecutionRuntimeAdaptivePartitioningMaxTaskSize = faultTolerantExecutionRuntimeAdaptivePartitioningMaxTaskSize;
+        return this;
+    }
+
     public boolean isFaultTolerantExecutionForcePreferredWritePartitioningEnabled()
     {
         return faultTolerantExecutionForcePreferredWritePartitioningEnabled;
@@ -996,7 +1023,7 @@ public class QueryManagerConfig
     }
 
     @Config("fault-tolerant-execution-small-stage-estimation-enabled")
-    @ConfigDescription("Enable small stage estimation heuristic, used for more aggresive speculative stage scheduling")
+    @ConfigDescription("Enable small stage estimation heuristic, used for more aggressive speculative stage scheduling")
     public QueryManagerConfig setFaultTolerantExecutionSmallStageEstimationEnabled(boolean faultTolerantExecutionSmallStageEstimationEnabled)
     {
         this.faultTolerantExecutionSmallStageEstimationEnabled = faultTolerantExecutionSmallStageEstimationEnabled;

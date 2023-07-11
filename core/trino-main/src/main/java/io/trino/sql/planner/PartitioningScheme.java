@@ -34,7 +34,12 @@ public class PartitioningScheme
     private final Optional<Symbol> hashColumn;
     private final boolean replicateNullsAndAny;
     private final Optional<int[]> bucketToPartition;
-    private final Optional<Integer> partitionCount;
+    private Optional<Integer> partitionCount;
+
+    public void setPartitionCount(int partitionCount)
+    {
+        this.partitionCount = Optional.of(partitionCount);
+    }
 
     public PartitioningScheme(Partitioning partitioning, List<Symbol> outputLayout)
     {
@@ -188,5 +193,16 @@ public class PartitioningScheme
                 .add("bucketToPartition", bucketToPartition)
                 .add("partitionCount", partitionCount)
                 .toString();
+    }
+
+    public PartitioningScheme withNewPartitionCount(int partitionCount)
+    {
+        return new PartitioningScheme(
+                this.partitioning,
+                this.outputLayout,
+                this.hashColumn,
+                this.replicateNullsAndAny,
+                this.bucketToPartition,
+                Optional.of(partitionCount));
     }
 }

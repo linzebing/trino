@@ -43,7 +43,7 @@ public class PlanFragment
     private final PlanNode root;
     private final Map<Symbol, Type> symbols;
     private final PartitioningHandle partitioning;
-    private final Optional<Integer> partitionCount;
+    private Optional<Integer> partitionCount;
     private final List<PlanNodeId> partitionedSources;
     private final Set<PlanNodeId> partitionedSourcesSet;
     private final List<Type> types;
@@ -53,6 +53,12 @@ public class PlanFragment
     private final StatsAndCosts statsAndCosts;
     private final List<CatalogProperties> activeCatalogs;
     private final Optional<String> jsonRepresentation;
+
+    public void setPartitionCount(int partitionCount)
+    {
+        this.partitionCount = Optional.of(partitionCount);
+        this.outputPartitioningScheme.setPartitionCount(partitionCount);
+    }
 
     // Only for creating instances without the JSON representation embedded
     private PlanFragment(

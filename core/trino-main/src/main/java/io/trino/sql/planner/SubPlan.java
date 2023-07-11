@@ -29,7 +29,7 @@ import static java.util.Objects.requireNonNull;
 public class SubPlan
 {
     private final PlanFragment fragment;
-    private final List<SubPlan> children;
+    private List<SubPlan> children;
 
     public SubPlan(PlanFragment fragment, List<SubPlan> children)
     {
@@ -38,6 +38,11 @@ public class SubPlan
 
         this.fragment = fragment;
         this.children = ImmutableList.copyOf(children);
+    }
+
+    public void setChildren(List<SubPlan> children)
+    {
+        this.children = ImmutableList.copyOf(requireNonNull(children, "children is null"));
     }
 
     public PlanFragment getFragment()

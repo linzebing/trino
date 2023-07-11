@@ -31,7 +31,7 @@ import static java.util.Objects.requireNonNull;
 public class RemoteSourceNode
         extends PlanNode
 {
-    private final List<PlanFragmentId> sourceFragmentIds;
+    private List<PlanFragmentId> sourceFragmentIds;
     private final List<Symbol> outputs;
     private final Optional<OrderingScheme> orderingScheme;
     private final ExchangeNode.Type exchangeType; // This is needed to "unfragment" to compute stats correctly.
@@ -85,6 +85,11 @@ public class RemoteSourceNode
     public List<PlanFragmentId> getSourceFragmentIds()
     {
         return sourceFragmentIds;
+    }
+
+    public void setSourceFragmentIds(List<PlanFragmentId> sourceFragmentIds)
+    {
+        this.sourceFragmentIds = sourceFragmentIds;
     }
 
     @JsonProperty("orderingScheme")

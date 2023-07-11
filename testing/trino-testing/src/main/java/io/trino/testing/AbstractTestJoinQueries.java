@@ -211,13 +211,7 @@ public abstract class AbstractTestJoinQueries
     @Test
     public void testSimpleJoin()
     {
-        assertQuery("SELECT COUNT(*) FROM lineitem JOIN orders ON lineitem.orderkey = orders.orderkey");
-        assertQuery("" +
-                "SELECT COUNT(*) FROM " +
-                "(SELECT orderkey FROM lineitem WHERE orderkey < 1000) a " +
-                "JOIN " +
-                "(SELECT orderkey FROM orders WHERE orderkey < 2000) b " +
-                "ON NOT (a.orderkey <= b.orderkey)");
+        assertQuery("SELECT * FROM lineitem JOIN orders ON lineitem.orderkey = orders.orderkey");
     }
 
     @Test

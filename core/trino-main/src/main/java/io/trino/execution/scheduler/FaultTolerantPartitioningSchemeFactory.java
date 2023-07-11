@@ -52,15 +52,14 @@ public class FaultTolerantPartitioningSchemeFactory
         this.maxPartitionCount = maxPartitionCount;
     }
 
+    public void clearCache()
+    {
+        cache.clear();
+    }
+
     public FaultTolerantPartitioningScheme get(PartitioningHandle handle, Optional<Integer> partitionCount)
     {
-        FaultTolerantPartitioningScheme result = cache.get(handle);
-        if (result == null) {
-            // Avoid using computeIfAbsent as the "get" method is called recursively from the "create" method
-            result = create(handle, partitionCount);
-            cache.put(handle, result);
-        }
-        return result;
+        return create(handle, partitionCount);
     }
 
     private FaultTolerantPartitioningScheme create(PartitioningHandle partitioningHandle, Optional<Integer> partitionCount)
